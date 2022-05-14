@@ -1,0 +1,97 @@
+version: '3.9'
+
+services:
+  # PostgreSQL database supporting the django web application
+  db:
+    image: postgres
+    volumes:
+      - ./data/db:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+
+  # Demo django web application
+  web:
+    build: ./webapp
+      # context: ./webapp
+      # dockerfile: Dockerfile-django
+    image: local/django-example:latest
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./webapp/:/code
+    ports:
+      - "8001:8000"
+    environment:
+      - POSTGRES_NAME=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    depends_on:
+      - db
+
+  # PostgreSQL database supporting keycloak
+  keycloak-postgresql:
+    image: docker.io/bitnami/postgresql:11
+    environment:
+      # ALLOW_EMPTY_PASSWORD is recommended only for development.
+      # - ALLOW_EMPTY_PASSWORD=yes
+      - POSTGRESQL_PASSWORD=keycloak
+      - POSTGRESQL_USERNAME=keycloak
+      - POSTGRESQL_DATABASE=keycloak
+    volumes:
+      - 'keycloak_pg_data:/bitnami/postgresql'
+    ports:
+      - "5432:5432"
+
+  # Demo keycloak
+  keycloak:
+    build: ./keycloak
+    image: local/keycloak:18.0.0
+    environment:
+      - KC_DB_URL_HOST=keycloak-postgresql
+      - KC_DB_URL_PORT=5432
+      - KC_DB_USERNAME=keycloak
+      - KC_DB_PASSWORD=keycloak
+      - KC_DB_URL_DATABASE=keycloak
+      # - KC_HOSTNAME=keycloak
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+      - PROXY_ADDRESS_FORWARDING=true
+    command: ["--https-certificate-file=/opt/tls/server.pem", "--https-certificate-key-file=/opt/tls/server.key", "--hostname=keycloak.example.com", "--log-level", "debug"]
+    volumes:
+      - ./keycloak/keycloak-server-key.pem:/opt/tls/server.key:ro
+      - ./keycloak/keycloak-server.pem:/opt/tls/server.pem:ro
+    depends_on:
+      - keycloak-postgresql
+    ports:
+      - "8443:8443"
+
+  # Demo OpenLDAP server
+  ldap:
+    build: ./ldap
+    image: local/openldap:latest
+
+  # Demo LDAP admin portal
+  phpldapadmin:
+    image: osixia/phpldapadmin:latest
+    container_name: phpldapadmin
+    environment:
+      PHPLDAPADMIN_LDAP_HOSTS: "ldap"
+      PHPLDAPADMIN_HTTPS: "false"
+    ports:
+      - "8080:80"
+    depends_on:
+      - ldap
+
+  # Demo javascript application
+  js-console:
+    build: ./js-console
+    image: local/js-console:latest
+    volumes:
+      - ./js-console/src/:/usr/local/apache2/htdocs/
+    ports:
+      - "8000:80"
+
+volumes:
+  keycloak_pg_data:
+    external: true
